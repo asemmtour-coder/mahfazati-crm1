@@ -1,0 +1,107 @@
+generator client { provider = "prisma-client-js" }
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum VisitStatus { SCHEDULED COMPLETED POSTPONED CANCELLED }
+enum MobileOpType { ADD_NUMBER UPLOAD_PROGRAM ADD_DATA_PACKAGE ADD_MINUTES_PACKAGE }
+enum Currency { ILS USD JOD }
+
+// رقم الحساب هو المفتاح الأساسي. extra يحفظ كل أعمدة Excel الأخرى كما هي.
+model Account {
+  accountNumber String   @id
+  name          String
+  region        String?
+  linesCount    Int      @default(0)
+  extra         Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  visits        Visit[]
+  mobileCalcs   MobileCalculation[]
+  teleCalcs     TeleCalculation[]
+  @@index([region])
+  @@index([name])
+}
+
+model Visit {
+  id            String      @id @default(cuid())
+  accountNumber String
+  account       Account     @relation(fields: [accountNumber], references: [accountNumber], onDelete: Restrict)
+  visitAt       DateTime
+  type          String
+  goal          String?
+  summary       String?
+  customerNeeds String?
+  issues        String?
+  agreedActions String?
+  followUpAt    DateTime?
+  status        VisitStatus @default(SCHEDULED)
+  notes         String?
+  attachments   Json?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  @@index([visitAt])
+  @@index([accountNumber])
+  @@index([status])
+  @@index([followUpAt])
+}
+
+// مستقلة تماماً: تُضاف يدوياً فقط ولا ترتبط بالحسابات ولا تُستورد.
+model Target {
+  id        String   @id @default(cuid())
+  name      String
+  number    String?
+  address   String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model MobileCalculation {
+  id            String       @id @default(cuid())
+  accountNumber String?
+  account       Account?     @relation(fields: [accountNumber], references: [accountNumber])
+  opType        MobileOpType
+  opDate        DateTime
+  amount        Decimal      @db.Decimal(14, 2) // القيمة الشهرية الكاملة المدخلة
+  isRecurring   Boolean
+  notes         String?
+  createdAt     DateTime     @default(now())
+  @@index([opDate])
+  @@index([opType])
+}
+
+model TeleCalculation {
+  id            String   @id @default(cuid())
+  accountNumber String?
+  account       Account? @relation(fields: [accountNumber], references: [accountNumber])
+  opType        String
+  opDate        DateTime
+  amount        Decimal  @db.Decimal(14, 2)
+  currency      Currency
+  isRecurring   Boolean
+  notes         String?
+  createdAt     DateTime @default(now())
+  @@index([opDate])
+}
+
+// قواعد الاحتساب والأهداف: لا تُعتمد النتائج المالية قبل confirmed = true
+model CalcRule {
+  key         String  @id   // مثال: mobile.add_number.proration
+  system      String        // MOBILE | TELE
+  description String
+  value       Json?
+  confirmed   Boolean @default(false)
+}
+
+model CalcTarget {
+  id       String  @id @default(cuid())
+  system   String
+  year     Int
+  quarter  Int
+  value    Decimal @db.Decimal(14, 2)
+  currency Currency?
+  @@unique([system, year, quarter, currency])
+}
